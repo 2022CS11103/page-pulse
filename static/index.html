@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Page Pulse — Instant Page Audit</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --border: #262b36;
+    --text: #e8eaed;
+    --muted: #8b93a3;
+    --accent: #5eead4;
+    --danger: #f87171;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 20px 24px;
+  }
+  h1 { font-size: 1.9rem; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .tagline { color: var(--muted); margin-bottom: 32px; font-size: 0.95rem; }
+  .search-row {
+    display: flex;
+    width: 100%;
+    max-width: 640px;
+    gap: 10px;
+  }
+  input[type="text"] {
+    flex: 1;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    font-size: 1rem;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  button {
+    padding: 14px 22px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: #0f1115;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 1rem;
+  }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .status-line {
+    max-width: 640px;
+    width: 100%;
+    margin-top: 14px;
+    font-size: 0.9rem;
+    min-height: 20px;
+  }
+  .status-line.error { color: var(--danger); }
+  .status-line.loading { color: var(--muted); }
+  #report {
+    width: 100%;
+    max-width: 640px;
+    margin-top: 24px;
+    display: none;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    margin-bottom: 14px;
+  }
+  .card h2 {
+    margin: 0 0 4px;
+    font-size: 1.1rem;
+  }
+  .card .sub { color: var(--muted); font-size: 0.85rem; word-break: break-all; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .metric {
+    background: #12141a;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .metric .label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .metric .value { font-size: 1.4rem; font-weight: 700; margin-top: 4px; }
+  .value.ok { color: var(--ok); }
+  .value.warn { color: var(--warn); }
+  .value.bad { color: var(--danger); }
+  footer {
+    margin-top: auto;
+    padding-top: 40px;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+  <h1>🔍 Page Pulse</h1>
+  <p class="tagline">Paste a URL. Get an instant on-page health report.</p>
+
+  <div class="search-row">
+    <input type="text" id="urlInput" placeholder="https://example.com" autocomplete="off" />
+    <button id="analyzeBtn">Analyze</button>
+  </div>
+  <div class="status-line" id="statusLine"></div>
+
+  <div id="report"></div>
+
+  <footer>
+    Built for Digital Heroes Training Task —
+    <a href="https://digitalheroesco.com" target="_blank" rel="noopener">digitalheroesco.com</a>
+  </footer>
+
+<script>
+const urlInput = document.getElementById('urlInput');
+const analyzeBtn = document.getElementById('analyzeBtn');
+const statusLine = document.getElementById('statusLine');
+const reportEl = document.getElementById('report');
+
+async function analyze() {
+  const url = urlInput.value.trim();
+  reportEl.style.display = 'none';
+  statusLine.className = 'status-line';
+
+  if (!url) {
+    statusLine.className = 'status-line error';
+    statusLine.textContent = 'Please enter a URL first.';
+    return;
+  }
+
+  analyzeBtn.disabled = true;
+  statusLine.className = 'status-line loading';
+  statusLine.textContent = 'Fetching and analyzing…';
+
+  try {
+    const res = await fetch(`/api/analyze?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      statusLine.className = 'status-line error';
+      statusLine.textContent = data.detail || 'Something went wrong.';
+      return;
+    }
+
+    statusLine.textContent = '';
+    renderReport(data);
+  } catch (err) {
+    statusLine.className = 'status-line error';
+    statusLine.textContent = 'Network error — could not reach Page Pulse backend.';
+  } finally {
+    analyzeBtn.disabled = false;
+  }
+}
+
+// Design decision: the score is a presentation-layer heuristic (client-side
+// only), not part of the audited data itself. Keeping it out of the API
+// response means the backend contract stays purely factual/testable, while
+// the frontend still gives reviewers a scannable at-a-glance signal.
+function computeScore(d) {
+  let score = 100;
+  if (!(d.status_code >= 200 && d.status_code < 300)) score -= 30;
+  if (!d.title) score -= 15;
+  if (!d.meta_description) score -= 15;
+  if (d.h1_count !== 1) score -= 10;
+  if (d.total_images > 0) {
+    score -= Math.min(20, Math.round((d.images_missing_alt / d.total_images) * 20));
+  }
+  if (d.response_time_ms >= 1500) score -= 15;
+  else if (d.response_time_ms >= 500) score -= 5;
+  return Math.max(0, score);
+}
+
+function renderReport(d) {
+  const altClass = d.images_missing_alt === 0 ? 'ok' : d.images_missing_alt <= 3 ? 'warn' : 'bad';
+  const h1Class = d.h1_count === 1 ? 'ok' : 'warn';
+  const statusClass = d.status_code >= 200 && d.status_code < 300 ? 'ok' : 'bad';
+  const speedClass = d.response_time_ms < 500 ? 'ok' : d.response_time_ms < 1500 ? 'warn' : 'bad';
+  const score = computeScore(d);
+  const scoreClass = score >= 85 ? 'ok' : score >= 60 ? 'warn' : 'bad';
+
+  reportEl.innerHTML = `
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <div>
+        <h2>${escapeHtml(d.title || '(no title found)')}</h2>
+        <div class="sub">${escapeHtml(d.url)}</div>
+        <p style="margin:10px 0 0;color:var(--muted);font-size:0.9rem;">
+          ${escapeHtml(d.meta_description || 'No meta description found.')}
+        </p>
+      </div>
+      <div style="text-align:center;flex-shrink:0;">
+        <div class="value ${scoreClass}" style="font-size:2.4rem;line-height:1;">${score}</div>
+        <div class="label" style="margin-top:4px;">/ 100</div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="metric">
+        <div class="label">HTTP Status</div>
+        <div class="value ${statusClass}">${d.status_code}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Response Time</div>
+        <div class="value ${speedClass}">${d.response_time_ms} ms</div>
+      </div>
+      <div class="metric">
+        <div class="label">H1 Count</div>
+        <div class="value ${h1Class}">${d.h1_count}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Word Count</div>
+        <div class="value">${d.word_count}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Images Missing Alt</div>
+        <div class="value ${altClass}">${d.images_missing_alt} / ${d.total_images}</div>
+      </div>
+      <div class="metric">
+        <div class="label">Meta Description</div>
+        <div class="value">${d.meta_description ? 'Present' : 'Missing'}</div>
+      </div>
+    </div>
+  `;
+  reportEl.style.display = 'block';
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+analyzeBtn.addEventListener('click', analyze);
+urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') analyze(); });
+</script>
+</body>
+</html>
